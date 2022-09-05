@@ -1,4 +1,4 @@
-from ltypes import f64, f32, ccall, vectorize, overload
+from ltypes import f64, f32, i64, i32, ccall, vectorize, overload
 
 pi_64: f64 = 3.141592653589793238462643383279502884197
 pi_32: f32 = 3.141592653589793238462643383279502884197
@@ -294,3 +294,39 @@ def radians(x: f64) -> f64:
 @vectorize
 def radians(x: f32) -> f32:
     return x*pi_32/180
+
+########## floor ##########
+
+@overload
+@vectorize
+def floor(x: f64) -> f64:
+    result: i64
+    result = int(x)
+    if x >= 0 or x == result:
+        return float(result)
+    return float(result - 1)
+
+@overload
+@vectorize
+def floor(x: f32) -> f32:
+    return x // 1.0
+
+########## ceil ##########
+
+@overload
+@vectorize
+def ceil(x: f64) -> f64:
+    result: i64
+    result = int(x)
+    if x <= 0 or x == result:
+        return float(result)
+    return float(result + 1)
+
+@overload
+@vectorize
+def ceil(x: f32) -> f32:
+    result: i32
+    result = int(x)
+    if x <= 0 or x == result:
+        return result * 1.0
+    return (result + 1) * 1.0
