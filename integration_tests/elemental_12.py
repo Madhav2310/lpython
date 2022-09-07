@@ -19,7 +19,6 @@ def elemental_floor64():
             for k in range(8):
                 for l in range(4):
                     arraynd[i, j, k, l] = ((-1)**l) * sqrt(float(i + j + k + l))
-                    # arraynd[i, j, k, l] = 0.0
 
     observed: f64[32, 16, 8, 4] = empty((32, 16, 8, 4))
     observed = floor(arraynd)
@@ -48,7 +47,7 @@ def elemental_floor32():
         for j in range(16):
             for k in range(8):
                 for l in range(4):
-                    arraynd[i, j, k, l] = sqrt(float(i + j + k + l))
+                    arraynd[i, j, k, l] = ((-1)**l) * sqrt(float(i + j + k + l))
 
     observed: f32[32, 16, 8, 4] = empty((32, 16, 8, 4))
     observed = floor(arraynd)
@@ -78,7 +77,6 @@ def elemental_ceil64():
             for k in range(8):
                 for l in range(4):
                     arraynd[i, j, k, l] = ((-1)**l) * sqrt(float(i + j + k + l))
-                    # arraynd[i, j, k, l] = 0.0
 
     observed: f64[32, 16, 8, 4] = empty((32, 16, 8, 4))
     observed = ceil(arraynd)
@@ -107,7 +105,7 @@ def elemental_ceil32():
         for j in range(16):
             for k in range(8):
                 for l in range(4):
-                    arraynd[i, j, k, l] = sqrt(float(i + j + k + l))
+                    arraynd[i, j, k, l] = ((-1)**l) * sqrt(float(i + j + k + l))
 
     observed: f32[32, 16, 8, 4] = empty((32, 16, 8, 4))
     observed = ceil(arraynd)

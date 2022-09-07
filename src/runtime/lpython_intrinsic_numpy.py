@@ -309,7 +309,11 @@ def floor(x: f64) -> f64:
 @overload
 @vectorize
 def floor(x: f32) -> f32:
-    return x // 1.0
+    result: i32 = int(x)
+    resultf: f32 = result
+    if x >= 0 or x == resultf:
+        return resultf
+    return resultf - 1
 
 ########## ceil ##########
 
@@ -325,8 +329,8 @@ def ceil(x: f64) -> f64:
 @overload
 @vectorize
 def ceil(x: f32) -> f32:
-    result: i32
-    result = int(x)
-    if x <= 0 or x == result:
-        return result * 1.0
-    return (result + 1) * 1.0
+    result: i32 = int(x)
+    resultf: f32 = result
+    if x <= 0 or x == resultf:
+        return resultf
+    return resultf + 1
