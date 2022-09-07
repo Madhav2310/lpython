@@ -399,6 +399,10 @@ asr = true
 filename = "../integration_tests/generics_list_01.py"
 asr = true
 
+[[test]]
+filename = "cast.py"
+asr = true
+
 # tests/tokens
 
 [[test]]
@@ -458,6 +462,10 @@ ast_new = true
 
 [[test]]
 filename = "parser/comprehension1.py"
+ast_new = true
+
+[[test]]
+filename = "parser/conditional_expr1.py"
 ast_new = true
 
 [[test]]
@@ -828,3 +836,19 @@ tokens = true
 [[test]]
 filename = "tokens/errors/indent2.py"
 tokens = true
+
+[[test]]
+filename = "tokens/errors/indent3.py"
+tokens = true
+
+[[test]]
+filename = "errors/kwargs_01_error.py"
+asr = true
+
+[[test]]
+filename = "errors/kwargs_02_error.py"
+asr = true
+
+[[test]]
+filename = "errors/kwargs_03_error.py"
+asr = true

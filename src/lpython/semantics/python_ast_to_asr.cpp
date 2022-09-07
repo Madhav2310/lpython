@@ -650,12 +650,82 @@ public:
         LFORTRAN_ASSERT(call_args_vec.reserve_called);
         for( size_t i = 0; i < n; i++ ) {
             this->visit_expr(*exprs[i]);
-            ASR::expr_t* expr = ASRUtils::EXPR(tmp);
+            ASR::expr_t* expr = nullptr;
             ASR::call_arg_t arg;
-            arg.loc = expr->base.loc;
+            if (tmp) {
+                expr = ASRUtils::EXPR(tmp);
+                arg.loc = expr->base.loc;
+            }
             arg.m_value = expr;
             call_args_vec.push_back(al, arg);
         }
+    }
+
+    int64_t find_argument_position_from_name(ASR::Function_t* orig_func, std::string arg_name,
+                                             const Location& call_loc, bool raise_error) {
+        int64_t arg_position = -1;
+        for( size_t i = 0; i < orig_func->n_args; i++ ) {
+            ASR::Var_t* arg_Var = ASR::down_cast<ASR::Var_t>(orig_func->m_args[i]);
+            std::string original_arg_name = ASRUtils::symbol_name(arg_Var->m_v);
+            if( original_arg_name == arg_name ) {
+                return i;
+            }
+        }
+        if( raise_error && arg_position == -1 ) {
+            throw SemanticError("Function " + std::string(orig_func->m_name) +
+                                " doesn't have an argument named '" + arg_name + "'",
+                                call_loc);
+        }
+        return arg_position;
+    }
+
+    bool visit_expr_list(AST::expr_t** pos_args, size_t n_pos_args,
+                         AST::keyword_t* kwargs, size_t n_kwargs,
+                         Vec<ASR::call_arg_t>& call_args_vec,
+                         ASR::Function_t* orig_func, const Location& call_loc,
+                         bool raise_error=true) {
+        LFORTRAN_ASSERT(call_args_vec.reserve_called);
+
+        // Fill the whole call_args_vec with nullptr
+        // This is for error handling later on.
+        for( size_t i = 0; i < n_pos_args + n_kwargs; i++ ) {
+            ASR::call_arg_t call_arg;
+            Location loc;
+            loc.first = loc.last = 1;
+            call_arg.m_value = nullptr;
+            call_arg.loc = loc;
+            call_args_vec.push_back(al, call_arg);
+        }
+
+        // Now handle positional arguments in the following loop
+        for( size_t i = 0; i < n_pos_args; i++ ) {
+            this->visit_expr(*pos_args[i]);
+            ASR::expr_t* expr = ASRUtils::EXPR(tmp);
+            call_args_vec.p[i].loc = expr->base.loc;
+            call_args_vec.p[i].m_value = expr;
+        }
+
+        // Now handle keyword arguments in the following loop
+        for( size_t i = 0; i < n_kwargs; i++ ) {
+            this->visit_expr(*kwargs[i].m_value);
+            ASR::expr_t* expr = ASRUtils::EXPR(tmp);
+            std::string arg_name = std::string(kwargs[i].m_arg);
+            int64_t arg_pos = find_argument_position_from_name(orig_func, arg_name, call_loc, raise_error);
+            if( arg_pos == -1 ) {
+                return false;
+            }
+            if( call_args_vec[arg_pos].m_value != nullptr ) {
+                if( !raise_error ) {
+                    return false;
+                }
+                throw SemanticError(std::string(orig_func->m_name) + "() got multiple values for argument '"
+                                    + arg_name + "'",
+                                    call_loc);
+            }
+            call_args_vec.p[arg_pos].loc = expr->base.loc;
+            call_args_vec.p[arg_pos].m_value = expr;
+        }
+        return true;
     }
 
     void visit_expr_list(Vec<ASR::call_arg_t>& exprs, size_t n,
@@ -747,18 +817,43 @@ public:
     // generic symbol then it changes the name accordingly.
     ASR::asr_t* make_call_helper(Allocator &al, ASR::symbol_t* s, SymbolTable *current_scope,
                     Vec<ASR::call_arg_t> args, std::string call_name, const Location &loc,
-                    bool ignore_return_value=false) {
+                    bool ignore_return_value=false, AST::expr_t** pos_args=nullptr, size_t n_pos_args=0,
+                    AST::keyword_t* kwargs=nullptr, size_t n_kwargs=0) {
         if (intrinsic_node_handler.is_present(call_name)) {
-            return intrinsic_node_handler.get_intrinsic_node(call_name, al, loc, args);
+            return intrinsic_node_handler.get_intrinsic_node(call_name, al, loc,
+                    args, ann_assign_target_type);
         }
         ASR::symbol_t *s_generic = nullptr, *stemp = s;
         // handling ExternalSymbol
         s = ASRUtils::symbol_get_past_external(s);
+        bool is_generic_procedure = ASR::is_a<ASR::GenericProcedure_t>(*s);
         if (ASR::is_a<ASR::GenericProcedure_t>(*s)) {
             s_generic = stemp;
             ASR::GenericProcedure_t *p = ASR::down_cast<ASR::GenericProcedure_t>(s);
-            int idx = ASRUtils::select_generic_procedure(args, *p, loc,
-                [&](const std::string &msg, const Location &loc) { throw SemanticError(msg, loc); });
+            int idx = -1;
+            if( n_kwargs > 0 ) {
+                args.reserve(al, n_pos_args + n_kwargs);
+                for( size_t iproc = 0; iproc < p->n_procs; iproc++ ) {
+                    args.n = 0;
+                    ASR::Function_t* orig_func = ASR::down_cast<ASR::Function_t>(p->m_procs[iproc]);
+                    if( !visit_expr_list(pos_args, n_pos_args, kwargs, n_kwargs,
+                                         args, orig_func, loc, false) ) {
+                        continue;
+                    }
+                    idx = ASRUtils::select_generic_procedure(args, *p, loc,
+                        [&](const std::string &msg, const Location &loc) { throw SemanticError(msg, loc); },
+                        false);
+                    if( idx == (int) iproc ) {
+                        break;
+                    }
+                }
+                if( idx == -1 ) {
+                    throw SemanticError("Arguments do not match for any generic procedure, " + std::string(p->m_name), loc);
+                }
+            } else {
+                idx = ASRUtils::select_generic_procedure(args, *p, loc,
+                        [&](const std::string &msg, const Location &loc) { throw SemanticError(msg, loc); });
+            }
             s = p->m_procs[idx];
             std::string remote_sym = ASRUtils::symbol_name(s);
             std::string local_sym = ASRUtils::symbol_name(s);
@@ -786,6 +881,11 @@ public:
         }
         if (ASR::is_a<ASR::Function_t>(*s)) {
             ASR::Function_t *func = ASR::down_cast<ASR::Function_t>(s);
+            if( n_kwargs > 0 && !is_generic_procedure ) {
+                args.reserve(al, n_pos_args + n_kwargs);
+                visit_expr_list(pos_args, n_pos_args, kwargs, n_kwargs,
+                                args, func, loc);
+            }
             if (func->n_type_params > 0) {
                 std::map<std::string, ASR::ttype_t*> subs;
                 for (size_t i=0; i<args.size(); i++) {
@@ -3960,6 +4060,7 @@ public:
             }
 
             Vec<ASR::call_arg_t> args;
+            // Keyword arguments to be handled in make_call_helper
             args.reserve(al, c->n_args);
             visit_expr_list(c->m_args, c->n_args, args);
             if (call_name == "print") {
@@ -4028,7 +4129,8 @@ public:
                     x.base.base.loc);
             }
             tmp = make_call_helper(al, s, current_scope, args, call_name,
-                    x.base.base.loc, true);
+                    x.base.base.loc, true, c->m_args, c->n_args, c->m_keywords,
+                    c->n_keywords);
             return;
         }
         this->visit_expr(*x.m_value);
@@ -4071,8 +4173,12 @@ public:
     void visit_Call(const AST::Call_t &x) {
         std::string call_name;
         Vec<ASR::call_arg_t> args;
-        args.reserve(al, x.n_args);
-        visit_expr_list(x.m_args, x.n_args, args);
+        // Keyword arguments handled in make_call_helper
+        if( x.n_keywords == 0 ) {
+            args.reserve(al, x.n_args);
+            visit_expr_list(x.m_args, x.n_args, args);
+        }
+
         if (AST::is_a<AST::Name_t>(*x.m_func)) {
             AST::Name_t *n = AST::down_cast<AST::Name_t>(x.m_func);
             call_name = n->m_id;
@@ -4194,6 +4300,20 @@ public:
                                     arg.m_value = se;
                                     args.push_back(al, arg);
                                     tmp = make_call_helper(al, fn_div, current_scope, args, "_lpython_str_strip", x.base.base.loc);
+                                    return;
+                                } else if (std::string(at->m_attr) == std::string("swapcase")) {
+                                    if(args.size() != 0) {
+                                        throw SemanticError("str.swapcase() takes no arguments",
+                                            x.base.base.loc);
+                                    }
+                                    ASR::symbol_t *fn_div = resolve_intrinsic_function(x.base.base.loc, "_lpython_str_swapcase");
+                                    Vec<ASR::call_arg_t> args;
+                                    args.reserve(al, 1);
+                                    ASR::call_arg_t arg;
+                                    arg.loc = x.base.base.loc;
+                                    arg.m_value = se;
+                                    args.push_back(al, arg);
+                                    tmp = make_call_helper(al, fn_div, current_scope, args, "_lpython_str_swapcase", x.base.base.loc);
                                     return;
                                 } else if (std::string(at->m_attr) == std::string("startswith")) {
                                     if(args.size() != 1) {
@@ -4407,6 +4527,25 @@ public:
                                     1, 1, nullptr, nullptr , 0));
                     tmp = ASR::make_StringConstant_t(al, x.base.base.loc, s2c(al, res), str_type);
                     return;
+                } else if (std::string(at->m_attr) == std::string("swapcase")) {
+                    if(args.size() != 0) {
+                        throw SemanticError("str.swapcase() takes no arguments",
+                            x.base.base.loc);
+                    }
+                    AST::ConstantStr_t *n = AST::down_cast<AST::ConstantStr_t>(at->m_value);
+                    std::string res = n->m_value;
+                    for (size_t i = 0; i < res.size(); i++)  {
+                        char &cur = res[i];
+                        if(cur >= 'a' && cur <= 'z') {
+                            cur = cur -'a' + 'A';
+                        } else if(cur >= 'A' && cur <= 'Z') {
+                            cur = cur - 'A' + 'a';
+                        }
+                    }
+                    ASR::ttype_t *str_type = ASRUtils::TYPE(ASR::make_Character_t(al, x.base.base.loc,
+                                    1, 1, nullptr, nullptr , 0));
+                    tmp = ASR::make_StringConstant_t(al, x.base.base.loc, s2c(al, res), str_type);
+                    return;
                 } else if (std::string(at->m_attr) == std::string("startswith")) {
                     if (args.size() != 1) {
                         throw SemanticError("str.startswith() takes one arguments",
@@ -4570,7 +4709,7 @@ public:
                 return ;
             } else if (intrinsic_node_handler.is_present(call_name)) {
                 tmp = intrinsic_node_handler.get_intrinsic_node(call_name, al,
-                                        x.base.base.loc, args);
+                                        x.base.base.loc, args, ann_assign_target_type);
                 return;
             } else {
                 // The function was not found and it is not intrinsic
@@ -4579,7 +4718,8 @@ public:
             }
             } // end of "comment"
         }
-        tmp = make_call_helper(al, s, current_scope, args, call_name, x.base.base.loc);
+        tmp = make_call_helper(al, s, current_scope, args, call_name, x.base.base.loc,
+                               false, x.m_args, x.n_args, x.m_keywords, x.n_keywords);
     }
 
     void visit_ImportFrom(const AST::ImportFrom_t &/*x*/) {

@@ -440,8 +440,8 @@ def _lpython_floordiv(a: f64, b: f64) -> f64:
 
 @overload
 def _lpython_floordiv(a: f32, b: f32) -> f32:
-    r: f32
-    r = a/b
+    r: f64
+    r = float(a)/float(b)
     result: i32
     resultf32: f32
     result = int(r)
@@ -454,7 +454,7 @@ def _lpython_floordiv(a: f32, b: f32) -> f32:
 @overload
 def _lpython_floordiv(a: i32, b: i32) -> i32:
     r: f64 # f32 rounds things up and gives incorrect results
-    r = a/b
+    r = float(a)/float(b)
     result: i32
     result = int(r)
     if r >= 0.0 or result == r:
@@ -705,6 +705,19 @@ def _lpython_str_strip(x: str) -> str:
     res :str
     res = _lpython_str_lstrip(x)
     res = _lpython_str_rstrip(res)
+    return res
+
+@overload
+def _lpython_str_swapcase(s: str) -> str:
+    res :str = ""
+    cur: str
+    for cur in s:
+        if ord(cur) >= ord('a') and ord(cur) <= ord('z'):
+            res += chr(ord(cur) - ord('a') + ord('A'))
+        elif ord(cur) >= ord('A') and ord(cur) <= ord('Z'):
+            res += chr(ord(cur) - ord('A') + ord('a'))
+        else:
+            res += cur
     return res
 
 @overload
