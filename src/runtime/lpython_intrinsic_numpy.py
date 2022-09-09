@@ -1,4 +1,4 @@
-from ltypes import f64, f32, ccall, vectorize, overload
+from ltypes import f64, f32, i64, i32, ccall, vectorize, overload
 
 pi_64: f64 = 3.141592653589793238462643383279502884197
 pi_32: f32 = 3.141592653589793238462643383279502884197
@@ -354,3 +354,44 @@ def _lfortran_satanh(x: f32) -> f32:
 @vectorize
 def arctanh(x: f32) -> f32:
     return _lfortran_satanh(x)
+
+########## floor ##########
+
+@overload
+@vectorize
+def floor(x: f64) -> f64:
+    result: i64
+    result = int(x)
+    if x >= 0 or x == result:
+        return float(result)
+    return float(result - 1)
+
+@overload
+@vectorize
+def floor(x: f32) -> f32:
+    result: i32 = int(x)
+    resultf: f32 = result
+    if x >= 0 or x == resultf:
+        return resultf
+    return resultf - 1
+
+########## ceil ##########
+
+@overload
+@vectorize
+def ceil(x: f64) -> f64:
+    result: i64
+    result = int(x)
+    if x <= 0 or x == result:
+        return float(result)
+    return float(result + 1)
+
+@overload
+@vectorize
+def ceil(x: f32) -> f32:
+    result: i32 = int(x)
+    resultf: f32 = result
+    if x <= 0 or x == resultf:
+        return resultf
+    return resultf + 1
+
